@@ -266,10 +266,12 @@ bool MainWindow::ReadWAV(QFile& file)
         raw_data.resize(wav->Subchunk2Size);
         memcpy(raw_data.data(), wav->Data, wav->Subchunk2Size);
 
-        printCon("Info: Converting unsigned PCM-8 to signed PCM-8...");
         if(wav->BitsPerSample == 8)
+        {
+            printCon("Info: Converting unsigned PCM-8 to signed PCM-8...");
             for(int i = 0; i < raw_data.size(); i++)
                 raw_data.data()[i] -= 0x80;
+        }
 
         printCon("Info: Done and ready for conversion!");
 
