@@ -98,6 +98,12 @@ bool MainWindow::GetLoopMarkers(WAVStruct* wav, int fileSize, int& loopStart, in
 
     QString aloopStart = ReadWAVTag(wav, fileSize, "loopStart");
     loopStart = aloopStart.toInt(&ok);
+    
+    if(!ok)
+    {
+        aloopStart = ReadWAVTag(wav, fileSize, "[");
+        loopStart = aloopStart.toInt(&ok);
+    }
 
     if(!ok)
     {
@@ -108,6 +114,12 @@ bool MainWindow::GetLoopMarkers(WAVStruct* wav, int fileSize, int& loopStart, in
 
     QString aloopEnd = ReadWAVTag(wav, fileSize, "loopEnd");
     loopEnd = aloopEnd.toInt(&ok);
+    
+    if(!ok)
+    {
+        aloopEnd = ReadWAVTag(wav, fileSize, "]");
+        loopEnd = aloopEnd.toInt(&ok);
+    }
 
     if(loopEnd == 0 || !ok)
     {
