@@ -102,6 +102,8 @@ bool MainWindow::GetLoopMarkers(WAVStruct* wav, int fileSize, int& loopStart, in
     if(!ok)
     {
         aloopStart = ReadWAVTag(wav, fileSize, "[");
+        if(aloopStart == "")
+            return false;
         loopStart = aloopStart.toInt(&ok);
     }
 
@@ -118,6 +120,8 @@ bool MainWindow::GetLoopMarkers(WAVStruct* wav, int fileSize, int& loopStart, in
     if(!ok)
     {
         aloopEnd = ReadWAVTag(wav, fileSize, "]");
+        if(aloopEnd == "")
+            return false;
         loopEnd = aloopEnd.toInt(&ok);
     }
 
@@ -204,7 +208,7 @@ bool MainWindow::ReadWAV(QFile& file)
                 {
                     useMarkers = true;
                 }
-                else
+                else if (gotMarkers && gotSamples)
                 {
                     QMessageBox msgBox;
                     msgBox.setIcon(QMessageBox::Information);
