@@ -16,13 +16,13 @@ static const s16 stepTable[89] = {
 
 static const s8 indexTable[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
 
-s16 imaDecodeNibble(ImaState& state, u32 nibble)
+static inline s16 step(ImaState& state, u32 nibble)
 {
-	s32 step = stepTable[state.index];
-	s32 diff = step >> 3;
-	if (nibble & 1) diff += step >> 2;
-	if (nibble & 2) diff += step >> 1;
-	if (nibble & 4) diff += step;
+	s32 stepSize = stepTable[state.index];
+	s32 diff = stepSize >> 3;
+	if (nibble & 1) diff += stepSize >> 2;
+	if (nibble & 2) diff += stepSize >> 1;
+	if (nibble & 4) diff += stepSize;
 
 	if (nibble & 8)
 		state.pred = std::max(state.pred - diff, -32768);
@@ -33,24 +33,134 @@ s16 imaDecodeNibble(ImaState& state, u32 nibble)
 	return s16(state.pred);
 }
 
-// Picks the nibble whose decoded value lands closest to the sample, then
-// advances the state exactly as the decoder will.
-u32 imaEncodeSample(ImaState& state, s32 sample)
+s16 imaDecodeNibble(ImaState& state, u32 nibble)
 {
-	u32 best = 0;
-	s32 bestError = 0x7FFFFFFF;
-	for (u32 nibble = 0; nibble < 16; nibble++)
+	return step(state, nibble);
+}
+
+namespace
+{
+	struct Path
 	{
-		ImaState trial = state;
-		s32 error = std::abs(imaDecodeNibble(trial, nibble) - sample);
-		if (error < bestError)
+		ImaState state;
+		s64 error;
+	};
+
+	struct Candidate
+	{
+		ImaState state;
+		s64 error;
+		u16 parent;
+		u8 nibble;
+	};
+
+	constexpr u32 Extensions = 4;
+
+	struct Link
+	{
+		u16 parent;
+		u8 nibble;
+	};
+
+	// Searches for the nibbles with the least squared error over a whole block.
+	// A path is one choice of nibbles; every step extends each kept path with all
+	// 16 nibbles and keeps the best `beam` of them. Paths that reach the same
+	// decoder state are merged, since they continue identically. Looking past the
+	// current sample is what a greedy encoder lacks: the best nibble for one
+	// sample can leave the step size wrong for the next ones.
+	class BlockEncoder
+	{
+	public:
+		explicit BlockEncoder(u32 beam) : beam(beam) {}
+
+		// `state` holds the block header on entry and the state after the last nibble on exit.
+		void encode(ImaState& state, const s16* samples, u32 count, u8* nibbles)
 		{
-			bestError = error;
-			best = nibble;
+			paths.assign(1, Path{ state, 0 });
+			links.resize(size_t(count) * beam);
+
+			for (u32 n = 0; n < count; n++)
+			{
+				const s32 target = samples[n];
+
+				candidates.clear();
+				for (u32 p = 0; p < paths.size(); p++)
+				{
+					// Only the nibbles that land nearest the sample are worth extending.
+					Candidate near[Extensions];
+					u32 count = 0;
+					for (u32 nibble = 0; nibble < 16; nibble++)
+					{
+						Candidate c{ paths[p].state, 0, u16(p), u8(nibble) };
+						s32 diff = step(c.state, nibble) - target;
+						c.error = paths[p].error + s64(diff) * diff;
+
+						if (count == Extensions && c.error >= near[count - 1].error)
+							continue;
+						u32 at = count < Extensions ? count++ : Extensions - 1;
+						for (; at > 0 && near[at - 1].error > c.error; at--)
+							near[at] = near[at - 1];
+						near[at] = c;
+					}
+					candidates.insert(candidates.end(), near, near + count);
+				}
+
+				select();
+
+				paths.clear();
+				for (u32 k = 0; k < candidates.size(); k++)
+				{
+					paths.push_back({ candidates[k].state, candidates[k].error });
+					links[size_t(n) * beam + k] = { candidates[k].parent, candidates[k].nibble };
+				}
+			}
+
+			// The best path's nibbles, read back from its end.
+			u32 best = 0;
+			for (u32 k = 1; k < paths.size(); k++)
+			{
+				if (paths[k].error < paths[best].error)
+					best = k;
+			}
+			state = paths[best].state;
+			for (u32 n = count; n-- > 0;)
+			{
+				Link link = links[size_t(n) * beam + best];
+				nibbles[n] = link.nibble;
+				best = link.parent;
+			}
 		}
-	}
-	imaDecodeNibble(state, best);
-	return best;
+
+	private:
+		// Leaves the best `beam` candidates, one per decoder state, by error.
+		void select()
+		{
+			auto byError = [](const Candidate& a, const Candidate& b) { return a.error < b.error; };
+
+			// Merging can drop some of the best, so look at twice as many.
+			size_t pool = std::min<size_t>(candidates.size(), size_t(beam) * 2);
+			if (pool < candidates.size())
+				std::nth_element(candidates.begin(), candidates.begin() + pool, candidates.end(), byError);
+			std::sort(candidates.begin(), candidates.begin() + pool, byError);
+
+			size_t kept = 0;
+			for (size_t i = 0; i < pool && kept < beam; i++)
+			{
+				bool duplicate = false;
+				for (size_t k = 0; k < kept && !duplicate; k++)
+					duplicate = candidates[k].state.pred == candidates[i].state.pred &&
+								candidates[k].state.index == candidates[i].state.index;
+				if (!duplicate)
+					candidates[kept++] = candidates[i];
+			}
+			candidates.resize(kept);
+		}
+
+		u32 beam;
+		std::vector<Path> paths;
+		std::vector<Candidate> candidates;
+		std::vector<Link> links;
+	};
 }
 
 u32 imaFramesPerBlock(u32 blockAlign, u32 channels)
@@ -59,7 +169,7 @@ u32 imaFramesPerBlock(u32 blockAlign, u32 channels)
 	return 1 + (blockAlign - unit) / unit * 8;
 }
 
-std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blockAlign)
+std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blockAlign, u32 beam, const Progress& progress)
 {
 	const u32 numChannels = u32(channels.size());
 	const u32 frames = u32(channels[0].size());
@@ -67,6 +177,8 @@ std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blo
 
 	std::vector<u8> out;
 	std::vector<ImaState> states(numChannels);
+	std::vector<std::vector<u8>> nibbles(numChannels, std::vector<u8>(framesPerBlock));
+	BlockEncoder encoder(std::max(beam, 1u));
 
 	for (u32 blockStart = 0; blockStart < frames; blockStart += framesPerBlock)
 	{
@@ -81,6 +193,8 @@ std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blo
 			out.push_back(u8(u16(first) >> 8));
 			out.push_back(u8(states[ch].index));
 			out.push_back(0);
+
+			encoder.encode(states[ch], &channels[ch][blockStart + 1], blockFrames - 1, nibbles[ch].data());
 		}
 
 		// Then words of 8 samples, alternating between channels. The last block
@@ -90,17 +204,14 @@ std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blo
 			for (u32 ch = 0; ch < numChannels; ch++)
 			{
 				u8 word[4] = {};
-				for (u32 i = 0; i < 8; i++)
-				{
-					u32 frame = blockStart + group + i;
-					if (group + i >= blockFrames)
-						break;
-					u32 nibble = imaEncodeSample(states[ch], channels[ch][frame]);
-					word[i / 2] |= u8(nibble << ((i & 1) * 4));
-				}
+				for (u32 i = 0; i < 8 && group + i < blockFrames; i++)
+					word[i / 2] |= u8(nibbles[ch][group - 1 + i] << ((i & 1) * 4));
 				out.insert(out.end(), word, word + 4);
 			}
 		}
+
+		if (progress)
+			progress(blockStart + blockFrames, frames);
 	}
 
 	return out;

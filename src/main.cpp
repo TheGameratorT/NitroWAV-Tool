@@ -2,12 +2,22 @@
 
 #include "audio.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+
+#ifdef _WIN32
+#include <io.h>
+#define IS_TTY(f) _isatty(_fileno(f))
+#else
+#include <unistd.h>
+#define IS_TTY(f) isatty(fileno(f))
+#endif
 
 namespace
 {
@@ -22,6 +32,8 @@ namespace
 		"      --no-loop                   Drop any loop found in the input\n"
 		"      --event <id>@<frame>        Add a cue point event, in input frames (repeatable)\n"
 		"      --block <bytes>             IMA-ADPCM block size per channel (default 512)\n"
+		"      --beam <n>                  IMA-ADPCM search width, higher is cleaner and slower\n"
+		"                                  (default 16, 1 is a greedy encoder)\n"
 		"  nwavtool info <file.wav>\n"
 		"      Prints what the file holds and whether the player can stream it.\n"
 		"  nwavtool from-nwav <in.nwav> -o <out.wav> [conv options]\n"
@@ -37,6 +49,61 @@ namespace
 	{
 		std::fprintf(stderr, "warning: %s\n", message.c_str());
 	}
+
+	std::string formatTime(double seconds)
+	{
+		char buf[32];
+		if (seconds < 60)
+			std::snprintf(buf, sizeof(buf), "%.1f s", seconds);
+		else
+			std::snprintf(buf, sizeof(buf), "%u:%02u", u32(seconds) / 60, u32(seconds) % 60);
+		return buf;
+	}
+
+	// A line on stderr that rewrites itself, when stderr is a terminal.
+	class ProgressLine
+	{
+	public:
+		ProgressLine(const char* label) : label(label), live(IS_TTY(stderr)), start(Clock::now()), lastDraw(start) {}
+
+		void update(u32 done, u32 total)
+		{
+			if (!live)
+				return;
+			Clock::time_point now = Clock::now();
+			if (done < total && now - lastDraw < std::chrono::milliseconds(80))
+				return;
+			lastDraw = now;
+
+			double elapsed = std::chrono::duration<double>(now - start).count();
+			double fraction = total ? double(done) / total : 1.0;
+			constexpr int width = 24;
+			int filled = int(fraction * width);
+
+			std::string bar(filled, '#');
+			bar.append(width - filled, '-');
+			std::string eta = fraction > 0.02 && done < total ? "  ETA " + formatTime(elapsed * (1 - fraction) / fraction) : "";
+			std::fprintf(stderr, "\r%s [%s] %3d%%  %s%s  %.2f Mframes/s\x1b[K", label, bar.c_str(), int(fraction * 100),
+						 formatTime(elapsed).c_str(), eta.c_str(), elapsed > 0 ? done / elapsed / 1e6 : 0.0);
+			std::fflush(stderr);
+		}
+
+		// Replaces the line with its outcome.
+		double finish()
+		{
+			double elapsed = std::chrono::duration<double>(Clock::now() - start).count();
+			if (live)
+				std::fprintf(stderr, "\r\x1b[K");
+			return elapsed;
+		}
+
+	private:
+		using Clock = std::chrono::steady_clock;
+		const char* label;
+		bool live;
+		Clock::time_point start;
+		Clock::time_point lastDraw;
+	};
 
 	u32 parseU32(const std::string& s, const char* what)
 	{
@@ -58,6 +125,7 @@ namespace
 		bool noLoop = false;
 		std::vector<Event> events;
 		u32 block = 512;
+		u32 beam = DefaultBeam;
 	};
 
 	Options parseOptions(int argc, char** argv, int first)
@@ -106,6 +174,8 @@ namespace
 			}
 			else if (a == "--block")
 				o.block = parseU32(next(), "block size");
+			else if (a == "--beam")
+				o.beam = parseU32(next(), "beam");
 			else if (!a.empty() && a[0] == '-')
 				fail("unknown option " + a);
 			else if (o.input.empty())
@@ -118,7 +188,36 @@ namespace
 			fail(std::string("missing input or output\n") + usage);
 		if (o.block < 8 || o.block % 4 != 0)
 			fail("--block must be a multiple of 4, at least 8");
+		if (o.beam < 1 || o.beam > 256)
+			fail("--beam must be between 1 and 256");
 		return o;
+	}
+
+	// Decodes the encoded file again and compares it with what went in.
+	void printQuality(const Audio& audio, const std::vector<u8>& file, u32 beam, double seconds)
+	{
+		Audio decoded;
+		WavInfo info;
+		std::string error;
+		if (!readWav(file, decoded, info, error) || decoded.channels.size() != audio.channels.size())
+			return;
+
+		double signal = 0, noise = 0;
+		for (size_t ch = 0; ch < audio.channels.size(); ch++)
+		{
+			size_t frames = std::min(audio.channels[ch].size(), decoded.channels[ch].size());
+			for (size_t i = 0; i < frames; i++)
+			{
+				double x = std::clamp(audio.channels[ch][i], -1.0f, 1.0f);
+				double e = x - decoded.channels[ch][i];
+				signal += x * x;
+				noise += e * e;
+			}
+		}
+		if (noise > 0 && signal > 0)
+			std::printf("  quality: %.2f dB SNR\n", 10 * std::log10(signal / noise));
+		std::printf("  encoder: beam %u, %s, %.2f Mframes/s\n", beam, formatTime(seconds).c_str(),
+					seconds > 0 ? audio.frames() / seconds / 1e6 : 0.0);
 	}
 
 	void convert(Audio audio, const Options& o, Format defaultFormat)
@@ -181,16 +280,24 @@ namespace
 				 " or lower saves ROM space without losing quality");
 
 		Format format = o.format.value_or(defaultFormat);
-		writeFile(o.output, writeWav(audio, format, o.block));
+		ProgressLine progress(format == Format::Ima ? "encoding" : "writing ");
+		std::vector<u8> file = writeWav(audio, format, o.block, o.beam, [&](u32 done, u32 total) { progress.update(done, total); });
+		double seconds = progress.finish();
+		writeFile(o.output, file);
 
 		static const char* names[] = { "PCM8", "PCM16", "IMA-ADPCM" };
-		std::printf("%s: %s, %u Hz, %s, %u frames", o.output.c_str(), names[int(format)], audio.sampleRate,
-					audio.channels.size() == 2 ? "stereo" : "mono", audio.frames());
+		double duration = double(audio.frames()) / audio.sampleRate;
+		std::printf("%s: %s, %u Hz, %s, %u frames (%s)", o.output.c_str(), names[int(format)], audio.sampleRate,
+					audio.channels.size() == 2 ? "stereo" : "mono", audio.frames(), formatTime(duration).c_str());
 		if (audio.loop)
 			std::printf(", loop %u:%u", audio.loop->start, audio.loop->end);
 		if (!audio.events.empty())
 			std::printf(", %zu events", audio.events.size());
 		std::printf("\n");
+
+		std::printf("  size:    %.2f MB, %.0f kbit/s\n", file.size() / 1048576.0, file.size() * 8 / duration / 1000);
+		if (format == Format::Ima)
+			printQuality(audio, file, o.beam, seconds);
 	}
 
 	int cmdConv(int argc, char** argv)

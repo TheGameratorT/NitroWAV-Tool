@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -16,6 +17,13 @@ using s64 = std::int64_t;
 
 // The highest rate the DS mixer outputs. Anything above it only costs ROM space.
 constexpr u32 MaxUsefulRate = 32728;
+
+// How many candidate IMA-ADPCM encodings the search keeps per sample. 1 is a
+// greedy encoder, which takes the nearest nibble for each sample on its own.
+constexpr u32 DefaultBeam = 16;
+
+// Called as a long step advances, with the frames done so far out of the total.
+using Progress = std::function<void(u32 done, u32 total)>;
 
 struct Loop
 {
@@ -68,7 +76,7 @@ void writeFile(const std::string& path, const std::vector<u8>& data);
 
 // wav.cpp
 bool readWav(const std::vector<u8>& file, Audio& audio, WavInfo& info, std::string& error);
-std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelBlock);
+std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelBlock, u32 beam = DefaultBeam, const Progress& progress = {});
 
 // Checks a parsed file against what the player accepts. Returns the problems found.
 std::vector<std::string> checkPlayable(const WavInfo& info);
@@ -84,9 +92,8 @@ struct ImaState
 };
 
 s16 imaDecodeNibble(ImaState& state, u32 nibble);
-u32 imaEncodeSample(ImaState& state, s32 sample);
 u32 imaFramesPerBlock(u32 blockAlign, u32 channels);
-std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blockAlign);
+std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blockAlign, u32 beam = DefaultBeam, const Progress& progress = {});
 std::vector<std::vector<s16>> imaDecode(const u8* data, u32 size, u32 channels, u32 blockAlign, u32 frames);
 
 // resample.cpp

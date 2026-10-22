@@ -321,7 +321,7 @@ std::optional<Loop> findLoopTags(const std::vector<u8>& file)
 	return std::nullopt;
 }
 
-std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelBlock)
+std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelBlock, u32 beam, const Progress& progress)
 {
 	const u32 channels = u32(audio.channels.size());
 	const u32 frames = audio.frames();
@@ -355,7 +355,7 @@ std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelB
 		w.u16_(4);
 		w.u16_(2);
 		w.u16_(u16(framesPerBlock));
-		data = imaEncode(pcm, blockAlign);
+		data = imaEncode(pcm, blockAlign, beam, progress);
 	}
 	else
 	{
