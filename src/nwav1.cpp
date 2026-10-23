@@ -63,6 +63,8 @@ bool readNwav1(const std::vector<u8>& file, Audio& audio, std::string& error)
 		for (u32 i = 0; i < numEvents; i++)
 			audio.events.push_back({ h[offset + i], rd32(h + offset + idBlock + i * 4), {} });
 		offset += idBlock + numEvents * 4;
+		// The old IDs were numbers; the new ones are hashes of names, so event 0 becomes "0".
+		resolveEventIds(audio.events);
 	}
 
 	const u8* data = h + offset;

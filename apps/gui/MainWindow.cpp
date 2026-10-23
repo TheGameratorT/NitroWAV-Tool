@@ -199,7 +199,7 @@ void MainWindow::buildUi()
 	connect(loopEndSpin, &QSpinBox::valueChanged, this, &MainWindow::loopSpinChanged);
 
 	eventTable = new QTableWidget(0, 3);
-	eventTable->setHorizontalHeaderLabels({ tr("ID"), tr("Frame"), tr("Label") });
+	eventTable->setHorizontalHeaderLabels({ tr("Name"), tr("Frame"), tr("ID") });
 	eventTable->horizontalHeader()->setStretchLastSection(true);
 	eventTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
 	eventTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -632,9 +632,12 @@ void MainWindow::fillEventRow(int row)
 	const Event& e = events[row];
 	const bool was = updatingUi;
 	updatingUi = true;
-	eventTable->setItem(row, 0, new QTableWidgetItem(QString::number(e.id)));
+	eventTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(e.label)));
 	eventTable->setItem(row, 1, new QTableWidgetItem(QString::number(e.frame)));
-	eventTable->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(e.label)));
+	// The ID is what the game reads: the hash of the name.
+	auto* id = new QTableWidgetItem(QString::asprintf("0x%08X", e.id));
+	id->setFlags(id->flags() & ~Qt::ItemIsEditable);
+	eventTable->setItem(row, 2, id);
 	updatingUi = was;
 }
 
@@ -667,9 +670,12 @@ void MainWindow::eventCellChanged(int row, int column)
 	bool ok = true;
 	if (column == 0)
 	{
-		u32 id = text.toUInt(&ok);
+		ok = !text.isEmpty();
 		if (ok)
-			events[row].id = id;
+		{
+			events[row].label = text.toStdString();
+			events[row].id = eventHash(events[row].label);
+		}
 	}
 	else if (column == 1)
 	{
@@ -678,39 +684,27 @@ void MainWindow::eventCellChanged(int row, int column)
 		if (ok)
 			events[row].frame = frame;
 	}
-	else
-	{
-		events[row].label = text.toStdString();
-	}
 
 	if (!ok)
-		statusBar()->showMessage(tr("That is not a valid value."), 3000);
+		statusBar()->showMessage(column == 0 ? tr("An event needs a name.") : tr("That is not a valid value."), 3000);
 	fillEventRow(row);
 	view->setEvents(events);
 
-	if (column == 0 && ok)
-	{
-		for (int other = 0; other < int(events.size()); other++)
-		{
-			if (other != row && events[other].id == events[row].id)
-			{
-				statusBar()->showMessage(tr("Another event already uses ID %1.").arg(events[row].id), 4000);
-				break;
-			}
-		}
-	}
+	// Only two different names with the same hash are a problem; repeated names are fine.
+	const std::string conflict = findEventConflict(events);
+	if (!conflict.empty())
+		statusBar()->showMessage(QString::fromStdString(conflict), 6000);
 }
 
 void MainWindow::addEventAt(u32 frame)
 {
 	if (!audio)
 		return;
-	u32 id = 1;
-	while (std::any_of(events.begin(), events.end(), [id](const Event& e) { return e.id == id; }))
-		id++;
+	// Beats repeat a name, so a new event takes the one before it.
+	const std::string label = events.empty() ? "bahp" : events.back().label;
 
 	std::vector<Event> next = events;
-	next.push_back({ id, std::min(frame, audio->frames() - 1), {} });
+	next.push_back({ eventHash(label), std::min(frame, audio->frames() - 1), label });
 	applyEvents(std::move(next), int(events.size()));
 }
 

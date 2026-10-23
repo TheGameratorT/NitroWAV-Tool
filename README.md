@@ -17,7 +17,11 @@ writes the loop and event chunks it uses.
 - PCM8, PCM16 or IMA-ADPCM (format `0x11`), in mono or stereo.
 - The loop comes from the first loop of the `smpl` chunk. The player wraps on
   the exact frame, so loop points can be anywhere.
-- Events come from `cue ` points. The cue ID is the event ID.
+- Events come from `cue ` points. An event has a name, such as `bahp`, and its
+  cue ID is the FNV-1a (32-bit) hash of the name, so the game compares integers
+  (`NWAV::EventID("bahp")` in the module computes the same hash at compile time).
+  The name is kept in a `labl` chunk for the tools. Several events can share a
+  name. The tool refuses two different names that hash alike.
 - Rates above 32728 Hz play correctly, but the DS mixes at that rate, so the
   extra samples only cost ROM space.
 
@@ -56,11 +60,11 @@ nwavtool conv song.wav -o song_ds.wav --rate 32728
 nwavtool conv song.wav -o song_ds.wav --rate 32728 --beam 32
 
 # Set the loop and events by hand. Positions are in input frames, end exclusive.
-nwavtool conv song.wav -o song_ds.wav --format pcm16 --loop 44100:1323000 --event 1@88200
+nwavtool conv song.wav -o song_ds.wav --format pcm16 --loop 44100:1323000 --event bahp@88200
 
 # Change only the loop and events. The audio is not decoded or encoded again,
 # so IMA-ADPCM keeps its quality. Frames after the loop end are cut.
-nwavtool edit song_ds.wav -o song_ds2.wav --loop 44100:1323000 --event 2@99000
+nwavtool edit song_ds.wav -o song_ds2.wav --loop 44100:1323000 --event bahp@99000
 
 # Keep the frames after the loop end instead of cutting them (works with conv too).
 nwavtool edit song_ds.wav -o song_ds2.wav --loop 44100:1323000 --no-trim
@@ -69,6 +73,7 @@ nwavtool edit song_ds.wav -o song_ds2.wav --loop 44100:1323000 --no-trim
 nwavtool info song_ds.wav
 
 # Migrate a legacy .nwav file. It keeps its PCM format unless --format says otherwise.
+# Its numeric event IDs become names: event 0 is now the event "0".
 nwavtool from-nwav old.nwav -o new.wav
 ```
 
@@ -121,7 +126,7 @@ effect within about 100 ms. Loop handles snap to the nearest zero crossing
 The part after the loop end is drawn dimmed, because export drops it (unless
 *Cut the audio after the loop end* is unticked).
 
-The side panel edits the loop and events as numbers, and event IDs and labels.
+The side panel edits the loop and events as numbers, and the event names. The ID column shows the hash the game reads. A new event repeats the name of the last one.
 Export writes the same file as `nwavtool conv`, with the same options. For a
 WAV the player can already stream, tick *Keep the audio as it is* (the default
 for IMA-ADPCM): only the loop and events change, and the audio data is copied

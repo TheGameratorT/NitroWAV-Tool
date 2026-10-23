@@ -124,7 +124,7 @@ namespace
 		check(info.hasLoop == bool(c.loop), "hasLoop");
 		if (c.loop)
 			check(info.loopStart == c.loop->start && info.loopEnd == c.loop->end, "loop points");
-		check(info.numEvents == 2 && info.events[0].id == 7 && info.events[1].frame == 4000, "events");
+		check(info.numEvents == 2 && info.events[0].id == eventHash("7") && info.events[1].frame == 4000, "events");
 
 		auto ref = reference(wav, c.format, c.channels, c.frames, c.block * c.channels);
 

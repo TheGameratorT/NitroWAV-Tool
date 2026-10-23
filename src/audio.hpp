@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using u8 = std::uint8_t;
@@ -31,6 +32,21 @@ struct Loop
 	u32 end; // Exclusive.
 };
 
+// The ID the player sees for an event name: FNV-1a (32-bit) over the bytes of the
+// name. It must keep agreeing with NWAV::EventID in the NWAV module.
+constexpr u32 eventHash(std::string_view name)
+{
+	u32 hash = 2166136261u;
+	for (char c : name)
+	{
+		hash ^= u8(c);
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
+// A cue point of the WAV. The player only reads the id, which is the hash of the
+// label, so the label is what to edit; resolveEventIds brings the id up to date.
 struct Event
 {
 	u32 id;
@@ -75,6 +91,13 @@ std::vector<u8> readFile(const std::string& path);
 void writeFile(const std::string& path, const std::vector<u8>& data);
 
 // wav.cpp
+// Sets each event's id to the hash of its label. An event without a label takes
+// its id as the name, in decimal, so a cue with ID 0 becomes the event "0".
+void resolveEventIds(std::vector<Event>& events);
+
+// Returns a message when two different labels hash to the same id, else an empty string.
+std::string findEventConflict(const std::vector<Event>& events);
+
 bool readWav(const std::vector<u8>& file, Audio& audio, WavInfo& info, std::string& error);
 std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelBlock, u32 beam = DefaultBeam, const Progress& progress = {});
 

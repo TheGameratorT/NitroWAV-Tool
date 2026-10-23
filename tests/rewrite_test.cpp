@@ -3,6 +3,7 @@
 #include "audio.hpp"
 
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <stdexcept>
 
@@ -49,7 +50,7 @@ namespace
 		{
 			const std::string how = what + (trim ? ", trimmed" : ", whole");
 			const Loop loop{ 1234, 9000 };
-			std::vector<Event> events = { { 2, 10, "a" }, { 9, 8000, "" } };
+			std::vector<Event> events = { { 2, 10, "a" }, { 9, 8000, "" }, { 0, 9000, "a" } };
 			std::vector<u8> out = rewriteWav(original, loop, events, trim);
 
 			Audio after;
@@ -59,7 +60,10 @@ namespace
 					  info.sampleRate == beforeInfo.sampleRate && info.blockAlign == beforeInfo.blockAlign,
 				  how + ": same fmt");
 			check(info.loop && info.loop->start == loop.start && info.loop->end == loop.end, how + ": new loop");
-			check(info.events.size() == 2 && info.events[0].id == 2 && info.events[0].label == "a" && info.events[1].frame == 8000,
+			// The ID is the hash of the name, an unnamed event is named by its number, and a name can repeat.
+			check(info.events.size() == 3 && info.events[0].id == eventHash("a") && info.events[0].label == "a" &&
+					  info.events[1].frame == 8000 && info.events[1].label == "9" && info.events[1].id == eventHash("9") &&
+					  info.events[2].id == info.events[0].id,
 				  how + ": new events");
 			check(checkPlayable(info).empty(), how + ": playable");
 
@@ -99,6 +103,36 @@ int main()
 		testFormat(Format::Pcm8, channels, "pcm8");
 		testFormat(Format::Pcm16, channels, "pcm16");
 		testFormat(Format::Ima, channels, "ima");
+	}
+
+	// The event ID is FNV-1a of the name. The module's NWAV::EventID must give the same.
+	check(eventHash("") == 2166136261u && eventHash("a") == 0xE40C292Cu && eventHash("bahp") == 0x5099CCD4u, "event hash");
+
+	// Two different names with one ID cannot be told apart by the player.
+	check(findEventConflict({ { 5, 1, "x" }, { 5, 2, "y" } }) != "", "conflict found");
+	check(findEventConflict({ { 5, 1, "x" }, { 5, 2, "x" } }).empty(), "a repeated name is no conflict");
+
+	// Legacy NWAV events were numbers; they become the names "0" and "3".
+	{
+		std::vector<u8> nwav(24, 0);
+		std::memcpy(nwav.data(), "NWAV", 4);
+		nwav[8] = 0x00; nwav[9] = 0x20; // 8192 Hz
+		nwav[22] = 2;
+		for (u8 b : { 0, 3, 0, 0 })
+			nwav.push_back(b);
+		for (u32 frame : { 10u, 20u })
+			for (int i = 0; i < 4; i++)
+				nwav.push_back(u8(frame >> (8 * i)));
+		nwav.resize(nwav.size() + 100, 128);
+		u32 size = u32(nwav.size());
+		std::memcpy(&nwav[4], &size, 4);
+
+		Audio audio;
+		std::string error;
+		check(readNwav1(nwav, audio, error), "reads a legacy NWAV: " + error);
+		check(audio.events.size() == 2 && audio.events[0].label == "0" && audio.events[0].id == eventHash("0") &&
+				  audio.events[1].label == "3" && audio.events[1].id == eventHash("3") && audio.events[1].frame == 20,
+			  "legacy event IDs become names");
 	}
 
 	// Anything the player cannot stream is refused.

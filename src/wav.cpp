@@ -75,9 +75,15 @@ namespace
 
 		if (!events.empty())
 		{
+			std::vector<Event> named = events;
+			resolveEventIds(named);
+			std::string conflict = findEventConflict(named);
+			if (!conflict.empty())
+				throw std::runtime_error(conflict);
+
 			c = w.beginChunk("cue ");
-			w.u32_(u32(events.size()));
-			for (const Event& e : events)
+			w.u32_(u32(named.size()));
+			for (const Event& e : named)
 			{
 				w.u32_(e.id);
 				w.u32_(e.frame);
@@ -90,12 +96,16 @@ namespace
 
 			c = w.beginChunk("LIST");
 			w.id("adtl");
-			for (const Event& e : events)
+			// Events that repeat a name share its cue ID, and so its label.
+			std::vector<u32> labelled;
+			for (const Event& e : named)
 			{
-				std::string label = e.label.empty() ? "event " + std::to_string(e.id) : e.label;
+				if (std::find(labelled.begin(), labelled.end(), e.id) != labelled.end())
+					continue;
+				labelled.push_back(e.id);
 				size_t l = w.beginChunk("labl");
 				w.u32_(e.id);
-				w.out.insert(w.out.end(), label.begin(), label.end());
+				w.out.insert(w.out.end(), e.label.begin(), e.label.end());
 				w.u8_(0);
 				w.endChunk(l);
 			}
@@ -149,6 +159,29 @@ namespace
 			pos += 8 + subSize + (subSize & 1);
 		}
 	}
+}
+
+void resolveEventIds(std::vector<Event>& events)
+{
+	for (Event& e : events)
+	{
+		if (e.label.empty())
+			e.label = std::to_string(e.id);
+		e.id = eventHash(e.label);
+	}
+}
+
+std::string findEventConflict(const std::vector<Event>& events)
+{
+	for (size_t i = 0; i < events.size(); i++)
+	{
+		for (size_t j = i + 1; j < events.size(); j++)
+		{
+			if (events[i].id == events[j].id && events[i].label != events[j].label)
+				return "the events \"" + events[i].label + "\" and \"" + events[j].label + "\" have the same ID, rename one";
+		}
+	}
+	return {};
 }
 
 std::vector<u8> readFile(const std::string& path)
@@ -235,6 +268,7 @@ bool readWav(const std::vector<u8>& file, Audio& audio, WavInfo& info, std::stri
 
 	if (list)
 		parseCueLabels(list, listSize, info.events);
+	resolveEventIds(info.events);
 
 	info.tag = rd16(fmt);
 	info.channels = rd16(fmt + 2);

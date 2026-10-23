@@ -364,7 +364,7 @@ void WaveformView::drawMarkers(QPainter& p)
 		QColor color = selected ? EventColor.lighter(130) : EventColor;
 		p.setPen(QPen(color, selected ? 2 : 1, Qt::DashLine));
 		p.drawLine(QPointF(x, top), QPointF(x, h));
-		flag(x, color, e.label.empty() ? QString("#%1").arg(e.id) : QString("#%1 %2").arg(e.id).arg(QString::fromStdString(e.label)), true);
+		flag(x, color, QString::fromStdString(e.label), true);
 	}
 
 	double px = xOf(playhead);
@@ -626,7 +626,7 @@ void WaveformView::contextMenuEvent(QContextMenuEvent* event)
 	if (hit.kind == Drag::Event)
 	{
 		int index = hit.event;
-		menu.addAction(tr("Delete event #%1").arg(events[index].id), this, [this, index] { emit eventDeleteRequested(index); });
+		menu.addAction(tr("Delete event \"%1\"").arg(QString::fromStdString(events[index].label)), this, [this, index] { emit eventDeleteRequested(index); });
 	}
 	menu.addSeparator();
 	menu.addAction(tr("Zoom to fit"), this, [this] { zoomToFit(); });

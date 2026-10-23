@@ -36,11 +36,11 @@ namespace
 		"      --loop <start>:<end>        Loop frames, end exclusive, in input frames\n"
 		"      --no-loop                   Drop any loop found in the input\n"
 		"      --no-trim                   Keep the frames after the loop end (default: cut them)\n"
-		"      --event <id>@<frame>        Add a cue point event, in input frames (repeatable)\n"
+		"      --event <name>@<frame>      Add a cue point event, in input frames (repeatable)\n"
 		"      --block <bytes>             IMA-ADPCM block size per channel (default 512)\n"
 		"      --beam <n>                  IMA-ADPCM search width, higher is cleaner and slower\n"
 		"                                  (default 16, 1 is a greedy encoder)\n"
-		"  nwavtool edit <in.wav> -o <out.wav> [--loop <start>:<end>] [--no-loop] [--no-trim] [--event <id>@<frame>]\n"
+		"  nwavtool edit <in.wav> -o <out.wav> [--loop <start>:<end>] [--no-loop] [--no-trim] [--event <name>@<frame>]\n"
 		"      Changes the loop and events of a playable WAV without encoding it again, so\n"
 		"      IMA-ADPCM keeps its quality. Frames after the loop end are cut (whole blocks\n"
 		"      for ADPCM) unless --no-trim is given. Use conv to change the format, rate or\n"
@@ -175,8 +175,11 @@ namespace
 				std::string v = next();
 				size_t at = v.find('@');
 				if (at == std::string::npos)
-					fail("--event takes <id>@<frame>");
-				o.events.push_back({ parseU32(v.substr(0, at), "event id"), parseU32(v.substr(at + 1), "event frame"), {} });
+					fail("--event takes <name>@<frame>");
+				std::string name = v.substr(0, at);
+				if (name.empty())
+					fail("--event needs a name");
+				o.events.push_back({ eventHash(name), parseU32(v.substr(at + 1), "event frame"), name });
 			}
 			else if (a == "--block")
 				o.block = parseU32(next(), "block size");
@@ -339,7 +342,7 @@ namespace
 		else
 			std::printf("loop:     none\n");
 		for (const Event& e : info.events)
-			std::printf("event:    %u @ %u%s%s\n", e.id, e.frame, e.label.empty() ? "" : " ", e.label.c_str());
+			std::printf("event:    %s (0x%08X) @ %u\n", e.label.c_str(), e.id, e.frame);
 
 		std::vector<std::string> problems = checkPlayable(info);
 		if (info.sampleRate > MaxUsefulRate)

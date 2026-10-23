@@ -112,7 +112,7 @@ private slots:
 		QCOMPARE(window.currentLoop()->start, Rate * 2);
 		QCOMPARE(window.currentLoop()->end, Rate * 5);
 		QCOMPARE(int(window.currentEvents().size()), 1);
-		QCOMPARE(window.currentEvents()[0].id, 3u);
+		QCOMPARE(window.currentEvents()[0].id, eventHash("intro"));
 		QVERIFY(viewport->grab().save(out + "/1_fit.png"));
 		QVERIFY(window.grab().save(out + "/0_window.png"));
 
@@ -141,10 +141,11 @@ private slots:
 		view->setLoopEndAt(Rate * 5);
 		QCOMPARE(window.currentLoop()->end, Rate * 5);
 
-		// Double click adds an event with a fresh ID.
+		// Double click adds an event that repeats the name of the one before it.
 		QTest::mouseDClick(viewport, Qt::LeftButton, {}, QPoint(viewport->width() / 2, y));
 		QCOMPARE(int(window.currentEvents().size()), 2);
-		QCOMPARE(window.currentEvents()[1].id, 1u);
+		QCOMPARE(window.currentEvents()[1].label, std::string("intro"));
+		QCOMPARE(window.currentEvents()[1].id, eventHash("intro"));
 		QVERIFY(std::abs(double(window.currentEvents()[1].frame) - total / 2.0) <= fpp + 1);
 
 		// Drag it, then delete it with the keyboard.
@@ -238,7 +239,7 @@ private slots:
 		QCOMPARE(info.loop->start, scaled(Rate));
 		QCOMPARE(info.loop->end, scaled(Rate * 4));
 		QCOMPARE(int(info.events.size()), 2);
-		QCOMPARE(info.events[0].id, 3u);
+		QCOMPARE(info.events[0].id, eventHash("intro"));
 		QCOMPARE(info.events[1].frame, scaled(Rate * 3));
 		QVERIFY(checkPlayable(info).empty());
 	}
