@@ -337,6 +337,12 @@ private slots:
 		player->seek(Rate * 3);
 		QCOMPARE(player->playhead(), Rate * 3);
 		player->play();
+		// Never back at the position before the seek, not even for one tick.
+		for (int i = 0; i < 10; i++)
+		{
+			QVERIFY(player->playhead() >= Rate * 3);
+			QTest::qWait(3);
+		}
 		QTRY_VERIFY(player->playhead() > Rate * 3);
 		player->pause();
 		QCOMPARE(int(player->state()), int(LoopPlayer::State::Paused));

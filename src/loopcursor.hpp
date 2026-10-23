@@ -45,10 +45,11 @@ public:
 
 	void seek(u32 frame) { seekTo.store(frame); }
 
-	// The next frame fill() reads.
+	// The next frame fill() reads, which is the pending seek if there is one.
 	u32 position() const
 	{
-		return pos.load();
+		u64 requested = seekTo.load();
+		return requested != None ? u32(requested) : pos.load();
 	}
 
 	// Writes interleaved frames and returns how many came from the audio. Past
