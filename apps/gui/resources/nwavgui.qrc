@@ -1,0 +1,8 @@
+<RCC>
+	<qresource prefix="/">
+		<file>nwav_16.png</file>
+		<file>nwav_32.png</file>
+		<file>nwav_48.png</file>
+		<file>nwav_256.png</file>
+	</qresource>
+</RCC>

@@ -11,7 +11,13 @@ add_library(nwavguicore STATIC
 target_include_directories(nwavguicore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(nwavguicore PUBLIC nwavcore Qt6::Widgets OpenAL::OpenAL)
 
-add_executable(nwavgui main.cpp)
+# The window icon comes from the Qt resources, as PNG so no image plugin is
+# needed. Windows also takes the .ico for the executable itself.
+qt_add_resources(NWAVGUI_RESOURCES resources/nwavgui.qrc)
+add_executable(nwavgui main.cpp ${NWAVGUI_RESOURCES})
+if(WIN32)
+	target_sources(nwavgui PRIVATE resources/nwavgui.rc)
+endif()
 target_link_libraries(nwavgui PRIVATE nwavguicore)
 
 find_package(Qt6 COMPONENTS Test QUIET)
