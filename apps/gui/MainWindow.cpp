@@ -386,7 +386,9 @@ void MainWindow::exportFile()
 	progress->setWindowTitle(tr("Exporting"));
 	progress->setWindowModality(Qt::WindowModal);
 	auto* progressLayout = new QVBoxLayout(progress);
-	progressLayout->addWidget(new QLabel(tr("Writing %1...").arg(QFileInfo(dialog.path()).fileName())));
+	const QString fileName = QFileInfo(dialog.path()).fileName();
+	auto* stage = new QLabel(tr("Writing %1...").arg(fileName));
+	progressLayout->addWidget(stage);
 	auto* bar = new QProgressBar;
 	bar->setRange(0, 100);
 	bar->setMinimumWidth(320);
@@ -436,20 +438,32 @@ void MainWindow::exportFile()
 			}
 
 			std::vector<std::string> warnings;
-			Audio prepared = prepareAudio(std::move(*source), options, warnings);
-			for (const std::string& w : warnings)
-				result->warnings << QString::fromStdString(w);
-
-			result->format = options.format.value_or(Format::Ima);
 			int lastPercent = -1;
-			auto start = std::chrono::steady_clock::now();
-			std::vector<u8> file = writeWav(prepared, result->format, options.block, options.beam, [&](u32 done, u32 total) {
+			auto report = [&](u32 done, u32 total) {
 				int percent = total ? int(100.0 * done / total) : 100;
 				if (percent == lastPercent)
 					return;
 				lastPercent = percent;
 				QMetaObject::invokeMethod(bar, [bar, percent] { bar->setValue(percent); }, Qt::QueuedConnection);
-			});
+			};
+			auto setStage = [&](const QString& text) {
+				lastPercent = -1;
+				QMetaObject::invokeMethod(stage, [stage, bar, text] {
+					stage->setText(text);
+					bar->setValue(0);
+				}, Qt::QueuedConnection);
+			};
+
+			if (options.rate)
+				setStage(tr("Resampling %1...").arg(fileName));
+			Audio prepared = prepareAudio(std::move(*source), options, warnings, report);
+			for (const std::string& w : warnings)
+				result->warnings << QString::fromStdString(w);
+
+			result->format = options.format.value_or(Format::Ima);
+			setStage(result->format == Format::Ima ? tr("Encoding %1...").arg(fileName) : tr("Writing %1...").arg(fileName));
+			auto start = std::chrono::steady_clock::now();
+			std::vector<u8> file = writeWav(prepared, result->format, options.block, options.beam, report);
 			result->seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 			writeFile(outPath, file);
 

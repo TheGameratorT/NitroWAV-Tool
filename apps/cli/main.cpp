@@ -5,7 +5,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
+#include <cerrno>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -114,8 +117,9 @@ namespace
 	u32 parseU32(const std::string& s, const char* what)
 	{
 		char* end;
-		unsigned long v = std::strtoul(s.c_str(), &end, 10);
-		if (s.empty() || *end != '\0')
+		errno = 0;
+		unsigned long long v = std::strtoull(s.c_str(), &end, 10);
+		if (s.empty() || !std::isdigit(u8(s[0])) || *end != '\0' || errno == ERANGE || v > UINT32_MAX)
 			fail(std::string("invalid ") + what + ": " + s);
 		return u32(v);
 	}
@@ -203,12 +207,16 @@ namespace
 	void convert(Audio audio, const Options& o, Format defaultFormat)
 	{
 		std::vector<std::string> warnings;
-		audio = prepareAudio(std::move(audio), o, warnings);
+		{
+			ProgressLine resampling("resampling");
+			audio = prepareAudio(std::move(audio), o, warnings, [&](u32 done, u32 total) { resampling.update(done, total); });
+			resampling.finish();
+		}
 		for (const std::string& w : warnings)
 			warn(w);
 
 		Format format = o.format.value_or(defaultFormat);
-		ProgressLine progress(format == Format::Ima ? "encoding" : "writing ");
+		ProgressLine progress(format == Format::Ima ? "encoding  " : "writing   ");
 		std::vector<u8> file = writeWav(audio, format, o.block, o.beam, [&](u32 done, u32 total) { progress.update(done, total); });
 		double seconds = progress.finish();
 		writeFile(o.output, file);

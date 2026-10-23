@@ -104,7 +104,7 @@ std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blo
 std::vector<std::vector<s16>> imaDecode(const u8* data, u32 size, u32 channels, u32 blockAlign, u32 frames);
 
 // resample.cpp
-std::vector<float> resample(const std::vector<float>& in, double ratio, const std::optional<Loop>& loop);
+std::vector<float> resample(const std::vector<float>& in, double ratio, const std::optional<Loop>& loop, const Progress& progress = {});
 
 // nwav1.cpp
 bool readNwav1(const std::vector<u8>& file, Audio& audio, std::string& error);

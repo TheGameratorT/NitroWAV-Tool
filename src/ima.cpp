@@ -194,7 +194,7 @@ std::vector<u8> imaEncode(const std::vector<std::vector<s16>>& channels, u32 blo
 			out.push_back(u8(states[ch].index));
 			out.push_back(0);
 
-			encoder.encode(states[ch], &channels[ch][blockStart + 1], blockFrames - 1, nibbles[ch].data());
+			encoder.encode(states[ch], channels[ch].data() + blockStart + 1, blockFrames - 1, nibbles[ch].data());
 		}
 
 		// Then words of 8 samples, alternating between channels. The last block

@@ -18,7 +18,8 @@ struct ConvertOptions
 // Applies the loop, events, mix down and resampling of the options to the audio.
 // Problems that do not stop the conversion are appended to warnings. Throws
 // std::runtime_error when the options do not fit the audio.
-Audio prepareAudio(Audio audio, const ConvertOptions& options, std::vector<std::string>& warnings);
+// Resampling is the slow step, and reports its progress across all channels.
+Audio prepareAudio(Audio audio, const ConvertOptions& options, std::vector<std::string>& warnings, const Progress& progress = {});
 
 // Decodes an encoded file again and returns its signal to noise ratio in dB
 // against the audio that went in. Empty when the file cannot be compared.

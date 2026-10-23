@@ -35,6 +35,11 @@ bool readNwav1(const std::vector<u8>& file, Audio& audio, std::string& error)
 	u32 channels = h[21] ? 2 : 1;
 	u32 numEvents = h[22];
 
+	if (sampleRate == 0 || fileSize < 24)
+	{
+		error = "invalid NWAV header";
+		return false;
+	}
 	if (format > 1)
 	{
 		error = "NWAV hardware ADPCM files cannot be migrated, convert the original audio instead";
@@ -93,7 +98,7 @@ bool readNwav1(const std::vector<u8>& file, Audio& audio, std::string& error)
 		}
 	}
 
-	if (loopEnd != 0 && loopStart < loopEnd)
+	if (loopEnd != 0 && loopStart < std::min(loopEnd, frames))
 		audio.loop = Loop{ loopStart, std::min(loopEnd, frames) };
 	return true;
 }

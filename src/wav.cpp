@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
@@ -164,6 +165,9 @@ void writeFile(const std::string& path, const std::vector<u8>& data)
 	if (!f)
 		throw std::runtime_error("cannot write " + path);
 	f.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+	f.close();
+	if (!f)
+		throw std::runtime_error("cannot write " + path);
 }
 
 bool readWav(const std::vector<u8>& file, Audio& audio, WavInfo& info, std::string& error)
@@ -299,7 +303,9 @@ bool readWav(const std::vector<u8>& file, Audio& audio, WavInfo& info, std::stri
 	}
 	else
 	{
-		error = "unsupported format tag 0x" + std::to_string(tag);
+		char hex[8];
+		std::snprintf(hex, sizeof(hex), "0x%04X", tag);
+		error = std::string("unsupported format tag ") + hex;
 		return false;
 	}
 

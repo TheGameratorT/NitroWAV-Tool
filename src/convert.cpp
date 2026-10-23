@@ -4,11 +4,13 @@
 #include <cmath>
 #include <stdexcept>
 
-Audio prepareAudio(Audio audio, const ConvertOptions& o, std::vector<std::string>& warnings)
+Audio prepareAudio(Audio audio, const ConvertOptions& o, std::vector<std::string>& warnings, const Progress& progress)
 {
 	const u32 frames = audio.frames();
 	if (frames == 0)
 		throw std::runtime_error("the input has no audio");
+	if (audio.sampleRate == 0)
+		throw std::runtime_error("the input has no sample rate");
 
 	if (o.noLoop)
 		audio.loop.reset();
@@ -43,8 +45,14 @@ Audio prepareAudio(Audio audio, const ConvertOptions& o, std::vector<std::string
 	if (o.rate && o.rate != audio.sampleRate)
 	{
 		double ratio = double(o.rate) / audio.sampleRate;
-		for (auto& ch : audio.channels)
-			ch = resample(ch, ratio, audio.loop);
+		const u32 numChannels = u32(audio.channels.size());
+		for (u32 c = 0; c < numChannels; c++)
+		{
+			Progress channelProgress;
+			if (progress)
+				channelProgress = [&](u32 done, u32 total) { progress(c * total + done, numChannels * total); };
+			audio.channels[c] = resample(audio.channels[c], ratio, audio.loop, channelProgress);
+		}
 
 		auto scale = [&](u32 frame) { return u32(std::llround(frame * ratio)); };
 		if (audio.loop)
@@ -53,6 +61,8 @@ Audio prepareAudio(Audio audio, const ConvertOptions& o, std::vector<std::string
 			if (std::abs(length - std::round(length)) > 1e-6)
 				warnings.push_back("the loop is not a whole number of frames at the new rate; its length is rounded");
 			audio.loop = Loop{ scale(audio.loop->start), std::min(scale(audio.loop->end), audio.frames()) };
+			if (audio.loop->start >= audio.loop->end)
+				throw std::runtime_error("the loop is shorter than a frame at the new rate");
 		}
 		for (Event& e : audio.events)
 			e.frame = scale(e.frame);
