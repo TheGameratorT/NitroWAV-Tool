@@ -78,6 +78,13 @@ void writeFile(const std::string& path, const std::vector<u8>& data);
 bool readWav(const std::vector<u8>& file, Audio& audio, WavInfo& info, std::string& error);
 std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelBlock, u32 beam = DefaultBeam, const Progress& progress = {});
 
+// Writes the file again with another loop and other events, and the audio data
+// as it is, so nothing is decoded or encoded again. That keeps IMA-ADPCM from
+// losing quality on each export. With trim, the data after the loop end is cut
+// (whole blocks only, for ADPCM). Throws std::runtime_error when the file is not
+// one the player can stream, or the loop does not fit it.
+std::vector<u8> rewriteWav(const std::vector<u8>& file, const std::optional<Loop>& loop, const std::vector<Event>& events, bool trim = true);
+
 // Checks a parsed file against what the player accepts. Returns the problems found.
 std::vector<std::string> checkPlayable(const WavInfo& info);
 

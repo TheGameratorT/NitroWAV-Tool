@@ -47,6 +47,61 @@ namespace
 		}
 	};
 
+	// The smpl loop and the cue points with their labels.
+	void writeMetadata(Writer& w, u32 sampleRate, const std::optional<Loop>& loop, const std::vector<Event>& events)
+	{
+		size_t c;
+		if (loop)
+		{
+			c = w.beginChunk("smpl");
+			w.u32_(0);										// Manufacturer
+			w.u32_(0);										// Product
+			w.u32_(u32(1000000000.0 / sampleRate));	// Sample period (ns)
+			w.u32_(60);										// MIDI unity note
+			w.u32_(0);										// MIDI pitch fraction
+			w.u32_(0);										// SMPTE format
+			w.u32_(0);										// SMPTE offset
+			w.u32_(1);										// Loop count
+			w.u32_(0);										// Sampler data
+			w.u32_(0);										// Cue point ID
+			w.u32_(0);										// Type: forward
+			w.u32_(loop->start);
+			w.u32_(loop->end - 1);					// Inclusive
+			w.u32_(0);										// Fraction
+			w.u32_(0);										// Play count: forever
+			w.endChunk(c);
+		}
+
+		if (!events.empty())
+		{
+			c = w.beginChunk("cue ");
+			w.u32_(u32(events.size()));
+			for (const Event& e : events)
+			{
+				w.u32_(e.id);
+				w.u32_(e.frame);
+				w.id("data");
+				w.u32_(0);
+				w.u32_(0);
+				w.u32_(e.frame);
+			}
+			w.endChunk(c);
+
+			c = w.beginChunk("LIST");
+			w.id("adtl");
+			for (const Event& e : events)
+			{
+				std::string label = e.label.empty() ? "event " + std::to_string(e.id) : e.label;
+				size_t l = w.beginChunk("labl");
+				w.u32_(e.id);
+				w.out.insert(w.out.end(), label.begin(), label.end());
+				w.u8_(0);
+				w.endChunk(l);
+			}
+			w.endChunk(c);
+		}
+	}
+
 	float pcmSample(const u8* p, u32 bits, bool isFloat)
 	{
 		if (isFloat)
@@ -392,59 +447,91 @@ std::vector<u8> writeWav(const Audio& audio, Format format, u32 bytesPerChannelB
 		w.endChunk(c);
 	}
 
-	if (audio.loop)
-	{
-		c = w.beginChunk("smpl");
-		w.u32_(0);										// Manufacturer
-		w.u32_(0);										// Product
-		w.u32_(u32(1000000000.0 / audio.sampleRate));	// Sample period (ns)
-		w.u32_(60);										// MIDI unity note
-		w.u32_(0);										// MIDI pitch fraction
-		w.u32_(0);										// SMPTE format
-		w.u32_(0);										// SMPTE offset
-		w.u32_(1);										// Loop count
-		w.u32_(0);										// Sampler data
-		w.u32_(0);										// Cue point ID
-		w.u32_(0);										// Type: forward
-		w.u32_(audio.loop->start);
-		w.u32_(audio.loop->end - 1);					// Inclusive
-		w.u32_(0);										// Fraction
-		w.u32_(0);										// Play count: forever
-		w.endChunk(c);
-	}
-
-	if (!audio.events.empty())
-	{
-		c = w.beginChunk("cue ");
-		w.u32_(u32(audio.events.size()));
-		for (const Event& e : audio.events)
-		{
-			w.u32_(e.id);
-			w.u32_(e.frame);
-			w.id("data");
-			w.u32_(0);
-			w.u32_(0);
-			w.u32_(e.frame);
-		}
-		w.endChunk(c);
-
-		c = w.beginChunk("LIST");
-		w.id("adtl");
-		for (const Event& e : audio.events)
-		{
-			std::string label = e.label.empty() ? "event " + std::to_string(e.id) : e.label;
-			size_t l = w.beginChunk("labl");
-			w.u32_(e.id);
-			w.out.insert(w.out.end(), label.begin(), label.end());
-			w.u8_(0);
-			w.endChunk(l);
-		}
-		w.endChunk(c);
-	}
+	writeMetadata(w, audio.sampleRate, audio.loop, audio.events);
 
 	// The data chunk goes last, so the player's header walk stops early.
 	c = w.beginChunk("data");
 	w.bytes(data);
+	w.endChunk(c);
+
+	u32 riffSize = u32(w.out.size() - 8);
+	std::memcpy(&w.out[4], &riffSize, 4);
+	return w.out;
+}
+
+std::vector<u8> rewriteWav(const std::vector<u8>& file, const std::optional<Loop>& loop, const std::vector<Event>& events, bool trim)
+{
+	Audio audio;
+	WavInfo info;
+	std::string error;
+	if (!readWav(file, audio, info, error))
+		throw std::runtime_error(error);
+	std::vector<std::string> problems = checkPlayable(info);
+	if (!problems.empty())
+		throw std::runtime_error("the file " + problems[0] + ", so it has to be converted instead");
+	if (loop && (loop->start >= loop->end || loop->end > info.frames))
+		throw std::runtime_error("loop " + std::to_string(loop->start) + ":" + std::to_string(loop->end) +
+								 " is empty or outside the " + std::to_string(info.frames) + " frames");
+
+	// The chunks that describe the audio are kept as they are.
+	const u8* fmt = nullptr;
+	u32 fmtSize = 0;
+	const u8* data = nullptr;
+	for (size_t pos = 12; pos + 8 <= file.size();)
+	{
+		const u8* chunk = &file[pos];
+		u32 size = u32(std::min<size_t>(rd32(chunk + 4), file.size() - pos - 8));
+		if (isId(chunk, "fmt "))
+		{
+			fmt = chunk + 8;
+			fmtSize = size;
+		}
+		else if (isId(chunk, "data"))
+		{
+			data = chunk + 8;
+		}
+		pos += 8 + size + (size & 1);
+	}
+
+	// Frames after the loop end are never heard. An ADPCM block can only be cut
+	// whole, so the last one may hold a few of them.
+	u32 frames = info.frames;
+	u32 dataSize = info.dataSize;
+	if (trim && loop && loop->end < frames)
+	{
+		if (info.tag == TagIma)
+		{
+			u32 blocks = (loop->end + info.framesPerBlock - 1) / info.framesPerBlock;
+			dataSize = std::min(dataSize, blocks * info.blockAlign);
+			frames = std::min(frames, blocks * info.framesPerBlock);
+		}
+		else
+		{
+			frames = loop->end;
+			dataSize = frames * info.blockAlign;
+		}
+	}
+
+	Writer w;
+	w.id("RIFF");
+	w.u32_(0);
+	w.id("WAVE");
+
+	size_t c = w.beginChunk("fmt ");
+	w.out.insert(w.out.end(), fmt, fmt + fmtSize);
+	w.endChunk(c);
+
+	if (info.tag == TagIma)
+	{
+		c = w.beginChunk("fact");
+		w.u32_(frames);
+		w.endChunk(c);
+	}
+
+	writeMetadata(w, info.sampleRate, loop, events);
+
+	c = w.beginChunk("data");
+	w.out.insert(w.out.end(), data, data + dataSize);
 	w.endChunk(c);
 
 	u32 riffSize = u32(w.out.size() - 8);
