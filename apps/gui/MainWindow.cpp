@@ -376,6 +376,7 @@ void MainWindow::exportFile()
 	options.noLoop = !loop;
 	const std::string outPath = dialog.path().toStdString();
 	const bool keep = dialog.keepAudio();
+	const bool trim = dialog.trimAfterLoop();
 	const auto original = sourceFile;
 	const std::optional<Loop> editedLoop = loop;
 	const std::vector<Event> editedEvents = events;
@@ -416,7 +417,7 @@ void MainWindow::exportFile()
 		{
 			if (keep)
 			{
-				std::vector<u8> file = rewriteWav(*original, editedLoop, editedEvents);
+				std::vector<u8> file = rewriteWav(*original, editedLoop, editedEvents, trim);
 				writeFile(outPath, file);
 
 				// Read the result back for the summary.

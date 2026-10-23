@@ -21,6 +21,9 @@ public:
 	// Write the audio as it is, with the edited loop and events, instead of converting it.
 	bool keepAudio() const;
 
+	// Cut the frames after the loop end. Applies to both ways of writing.
+	bool trimAfterLoop() const;
+
 	// Everything but the loop and events, which come from the editor.
 	ConvertOptions options() const;
 	QString path() const;
@@ -35,6 +38,7 @@ private:
 	QSpinBox* rate;
 	QCheckBox* keep;
 	QCheckBox* mono;
+	QCheckBox* trim;
 	QSpinBox* block;
 	QSpinBox* beam;
 	QLineEdit* pathEdit;

@@ -23,7 +23,7 @@ Audio prepareAudio(Audio audio, const ConvertOptions& o, std::vector<std::string
 		audio.events.push_back(e);
 
 	// Loops play up to their end, so nothing after it is ever heard.
-	if (audio.loop && audio.loop->end < frames)
+	if (o.trim && audio.loop && audio.loop->end < frames)
 	{
 		for (auto& ch : audio.channels)
 			ch.resize(audio.loop->end);

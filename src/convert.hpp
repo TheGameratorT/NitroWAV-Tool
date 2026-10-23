@@ -10,6 +10,7 @@ struct ConvertOptions
 	bool mono = false;
 	std::optional<Loop> loop;
 	bool noLoop = false;
+	bool trim = true; // Drop the frames after the loop end, which are never heard.
 	std::vector<Event> events;
 	u32 block = 512;
 	u32 beam = DefaultBeam;

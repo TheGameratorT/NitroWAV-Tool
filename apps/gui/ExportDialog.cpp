@@ -58,14 +58,20 @@ ExportDialog::ExportDialog(QWidget* parent, u32 inputRate, const QString& sugges
 
 	keep = new QCheckBox(tr("Keep the audio as it is (no re-encoding)"));
 	keep->setToolTip(tr("Only the loop and events change. Nothing is decoded or encoded again, so IMA-ADPCM\n"
-						"keeps its quality. Frames after the loop end are cut (whole blocks for ADPCM)."));
+						"keeps its quality."));
 	keep->setEnabled(canKeep);
 	keep->setChecked(canKeep && keepByDefault);
 	if (!canKeep)
 		keep->setText(tr("Keep the audio as it is (not possible for this file)"));
 
+	trim = new QCheckBox(tr("Cut the audio after the loop end"));
+	trim->setToolTip(tr("Nothing after the loop end is ever played, so cutting it saves ROM space.\n"
+						"Untick it to keep the whole recording."));
+	trim->setChecked(true);
+
 	auto* form = new QFormLayout;
 	form->addRow(keep);
+	form->addRow(trim);
 	form->addRow(tr("Format"), format);
 	form->addRow(tr("Sample rate"), rateRow);
 	form->addRow(QString(), mono);
@@ -95,12 +101,18 @@ ConvertOptions ExportDialog::options() const
 	o.mono = mono->isChecked();
 	o.block = u32(block->value() / 4 * 4);
 	o.beam = u32(beam->value());
+	o.trim = trim->isChecked();
 	return o;
 }
 
 bool ExportDialog::keepAudio() const
 {
 	return keep->isChecked();
+}
+
+bool ExportDialog::trimAfterLoop() const
+{
+	return trim->isChecked();
 }
 
 QString ExportDialog::path() const

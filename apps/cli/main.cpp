@@ -35,14 +35,16 @@ namespace
 		"      --mono                      Mix down to one channel\n"
 		"      --loop <start>:<end>        Loop frames, end exclusive, in input frames\n"
 		"      --no-loop                   Drop any loop found in the input\n"
+		"      --no-trim                   Keep the frames after the loop end (default: cut them)\n"
 		"      --event <id>@<frame>        Add a cue point event, in input frames (repeatable)\n"
 		"      --block <bytes>             IMA-ADPCM block size per channel (default 512)\n"
 		"      --beam <n>                  IMA-ADPCM search width, higher is cleaner and slower\n"
 		"                                  (default 16, 1 is a greedy encoder)\n"
-		"  nwavtool edit <in.wav> -o <out.wav> [--loop <start>:<end>] [--no-loop] [--event <id>@<frame>]\n"
+		"  nwavtool edit <in.wav> -o <out.wav> [--loop <start>:<end>] [--no-loop] [--no-trim] [--event <id>@<frame>]\n"
 		"      Changes the loop and events of a playable WAV without encoding it again, so\n"
 		"      IMA-ADPCM keeps its quality. Frames after the loop end are cut (whole blocks\n"
-		"      for ADPCM). Use conv to change the format, rate or channels.\n"
+		"      for ADPCM) unless --no-trim is given. Use conv to change the format, rate or\n"
+		"      channels.\n"
 		"  nwavtool info <file>\n"
 		"      Prints what the file holds and whether the player can stream it.\n"
 		"  nwavtool from-nwav <in.nwav> -o <out.wav> [conv options]\n"
@@ -166,6 +168,8 @@ namespace
 			}
 			else if (a == "--no-loop")
 				o.noLoop = true;
+			else if (a == "--no-trim")
+				o.trim = false;
 			else if (a == "--event")
 			{
 				std::string v = next();
@@ -268,7 +272,7 @@ namespace
 		for (const Event& e : o.events)
 			events.push_back(e);
 
-		std::vector<u8> out = rewriteWav(file, loop, events);
+		std::vector<u8> out = rewriteWav(file, loop, events, o.trim);
 		writeFile(o.output, out);
 
 		std::printf("%s: %u Hz", o.output.c_str(), info.sampleRate);

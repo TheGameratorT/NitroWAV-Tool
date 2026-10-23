@@ -62,6 +62,9 @@ nwavtool conv song.wav -o song_ds.wav --format pcm16 --loop 44100:1323000 --even
 # so IMA-ADPCM keeps its quality. Frames after the loop end are cut.
 nwavtool edit song_ds.wav -o song_ds2.wav --loop 44100:1323000 --event 2@99000
 
+# Keep the frames after the loop end instead of cutting them (works with conv too).
+nwavtool edit song_ds.wav -o song_ds2.wav --loop 44100:1323000 --no-trim
+
 # Check what a file holds and whether the player can stream it.
 nwavtool info song_ds.wav
 
@@ -80,7 +83,7 @@ any other input. `edit` only takes WAV files.
 If there is no `smpl` chunk, the loop comes from text tags (`loopStart`/`loopEnd`
 or `loopLength`, such as the `LOOPSTART`/`LOOPLENGTH` Vorbis comments of game
 rips). Frames after the loop end are dropped, since they are never
-heard.
+heard, unless `--no-trim` is given.
 
 When resampling, the samples leading into the loop end are filtered as if the
 loop start followed them. Resampling can make the loop length fractional, in
@@ -115,7 +118,8 @@ small buffers and wraps from the loop end to the loop start on the exact frame,
 inside the buffer, so there is no gap. Moving a handle while it plays takes
 effect within about 100 ms. Loop handles snap to the nearest zero crossing
 (hold Alt to place them freely), which makes a click at the seam less likely.
-The part after the loop end is drawn dimmed, because `conv` drops it.
+The part after the loop end is drawn dimmed, because export drops it (unless
+*Cut the audio after the loop end* is unticked).
 
 The side panel edits the loop and events as numbers, and event IDs and labels.
 Export writes the same file as `nwavtool conv`, with the same options. For a

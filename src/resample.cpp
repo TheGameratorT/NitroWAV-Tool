@@ -51,20 +51,27 @@ std::vector<float> resample(const std::vector<float>& in, double ratio, const st
 		}
 	}
 
-	// The input with room for the taps on both sides. Past the loop end the input
-	// continues from the loop start, so the frames leading into the loop end are
-	// filtered as the player will play them. Before the start and past the end
-	// of an unlooped input it is silent.
+	// Past the loop end the input continues from the loop start, so the frames
+	// leading into the loop end are filtered as the player will play them.
+	// Before the start and past the end of an unlooped input it is silent.
 	const bool wraps = loop && loop->end > loop->start;
+	auto looped = [&](s64 i) -> float {
+		if (wraps && i >= loop->end)
+			i = loop->start + (i - loop->end) % (loop->end - loop->start);
+		return i >= 0 && i < n ? in[size_t(i)] : 0.0f;
+	};
+
+	// The input with room for the taps on both sides. When the loop ends before
+	// the input does, the data after it is left as it is, and only the output
+	// frames next to the loop end read through looped().
+	const bool tail = wraps && loop->end < n;
 	std::vector<float> padded(size_t(n) + 2 * taps, 0.0f);
 	for (s64 i = 0; i < n + taps; i++)
 	{
-		s64 k = i;
-		if (wraps && k >= loop->end)
-			k = loop->start + (k - loop->end) % (loop->end - loop->start);
-		if (k < n)
-			padded[size_t(i + reach)] = in[size_t(k)];
+		float v = tail ? (i < n ? in[size_t(i)] : 0.0f) : looped(i);
+		padded[size_t(i + reach)] = v;
 	}
+	std::vector<float> seam(taps);
 
 	std::vector<float> out(outSize);
 	const double step = 1.0 / ratio;
@@ -83,6 +90,12 @@ std::vector<float> resample(const std::vector<float>& in, double ratio, const st
 		const float* b = a + taps;
 		// padded[center + 1] holds input frame center - reach + 1, the first tap.
 		const float* s = &padded[size_t(center + 1)];
+		if (tail && center < loop->end && center + reach >= loop->end)
+		{
+			for (int m = 0; m < taps; m++)
+				seam[m] = looped(center - reach + 1 + m);
+			s = seam.data();
+		}
 		float sum = 0.0f;
 		for (int m = 0; m < taps; m++)
 			sum += s[m] * (a[m] + f * (b[m] - a[m]));
